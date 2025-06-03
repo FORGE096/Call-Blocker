@@ -1,122 +1,128 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(const CallBlockerApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class CallBlockerApp extends StatefulWidget {
+  const CallBlockerApp({super.key});
 
-  // This widget is the root of your application.
+  @override
+  _CallBlockerAppState createState() => _CallBlockerAppState();
+}
+
+class _CallBlockerAppState extends State<CallBlockerApp> {
+  static const platform = MethodChannel('callblocker.channel');
+  final TextEditingController _controller = TextEditingController();
+  List<String> blockedPrefixes = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _requestPermissions();
+    _getBlockedPrefixes();
+  }
+
+  Future<void> _requestPermissions() async {
+    await Permission.phone.request();
+    await Permission.contacts.request();
+  }
+
+  Future<void> _getBlockedPrefixes() async {
+    try {
+      final List<dynamic> prefixes = await platform.invokeMethod(
+        'getBlockedPrefixes',
+      );
+      setState(() {
+        blockedPrefixes = prefixes.cast<String>();
+      });
+    } on PlatformException catch (e) {
+      print("خطا در دریافت پیشوندها: '${e.message}'.");
+    }
+  }
+
+  Future<void> _addBlockedPrefix(String prefix) async {
+    if (prefix.trim().isEmpty) return;
+    try {
+      await platform.invokeMethod('addBlockedPrefix', {
+        'prefix': prefix.trim(),
+      });
+      _controller.clear();
+      _getBlockedPrefixes();
+    } on PlatformException catch (e) {
+      print("خطا در افزودن پیشوند: '${e.message}'.");
+    }
+  }
+
+  Future<void> _removeBlockedPrefix(String prefix) async {
+    try {
+      await platform.invokeMethod('removeBlockedPrefix', {'prefix': prefix});
+      _getBlockedPrefixes();
+    } on PlatformException catch (e) {
+      print("خطا در حذف پیشوند: '${e.message}'.");
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-      ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
-    );
-  }
-}
-
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
-
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
-}
-
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
+      title: 'Call Blocker',
+      theme: ThemeData(primarySwatch: Colors.blue),
+      home: Scaffold(
+        appBar: AppBar(title: const Text('بلاک تماس بر اساس پیش‌شماره')),
+        body: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _controller,
+                      decoration: const InputDecoration(
+                        labelText: 'پیش‌شماره (مثال: +98)',
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: TextInputType.phone,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  ElevatedButton(
+                    onPressed: () => _addBlockedPrefix(_controller.text),
+                    child: const Text('اضافه کن'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: blockedPrefixes.length,
+                  itemBuilder: (context, index) {
+                    final prefix = blockedPrefixes[index];
+                    return ListTile(
+                      title: Text(prefix),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.delete),
+                        onPressed: () => _removeBlockedPrefix(prefix),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        floatingActionButton: FloatingActionButton(
+          onPressed: () async {
+            // تست عملکرد با یک شماره
+            await _addBlockedPrefix("+98");
+            print("پیشوند +98 اضافه شد");
+          },
+          child: const Icon(Icons.check),
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
 }
