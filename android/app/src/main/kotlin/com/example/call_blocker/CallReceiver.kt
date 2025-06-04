@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.telephony.TelephonyManager
 import android.util.Log
-import java.lang.reflect.Method
 
 class CallReceiver : BroadcastReceiver() {
 
@@ -15,54 +14,44 @@ class CallReceiver : BroadcastReceiver() {
         val state = intent.getStringExtra(TelephonyManager.EXTRA_STATE)
         if (state == TelephonyManager.EXTRA_STATE_RINGING) {
             val number = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER) ?: ""
-            Log.d("CallBlocker", "تماس ورودی از: $number")
+            Log.d("CallBlocker", "Incoming call from: $number")
             
-            // بررسی بلاک بودن شماره
-            if (shouldBlock(number, context)) {
-                Log.d("CallBlocker", "تماس بلاک شد: $number")
+            if (isBlockingEnabled(context)) {
+                Log.d("CallBlocker", "Blocking is enabled, checking number")
                 endCall(context)
+            } else {
+                Log.d("CallBlocker", "Blocking is disabled, allowing call")
             }
         }
     }
 
-    private fun shouldBlock(number: String, context: Context): Boolean {
+    private fun isBlockingEnabled(context: Context): Boolean {
         val prefs = context.getSharedPreferences("blocker_prefs", Context.MODE_PRIVATE)
-        val blockedPrefixes = prefs.getStringSet("blocked_prefixes", setOf()) ?: setOf()
-        
-        return blockedPrefixes.any { prefix ->
-            // نرمال‌سازی شماره برای مقایسه بهتر
-            val cleanNumber = number.replace("+", "").replace(" ", "")
-            val cleanPrefix = prefix.replace("+", "").replace(" ", "")
-            cleanNumber.startsWith(cleanPrefix)
-        }
+        return prefs.getBoolean("blocking_enabled", false)
     }
 
     private fun endCall(context: Context) {
         try {
-            // روش جدید برای قطع تماس (کاربردی‌تر)
-            val telephonyManager = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-            
-            try {
-                // روش 1: استفاده از getITelephony (برای اندروید قدیمی)
-                val getITelephony: Method = telephonyManager.javaClass.getDeclaredMethod("getITelephony")
-                getITelephony.isAccessible = true
-                val telephonyService: Any = getITelephony.invoke(telephonyManager)
-                
-                val endCall: Method = telephonyService.javaClass.getDeclaredMethod("endCall")
-                endCall.invoke(telephonyService)
-                Log.d("CallBlocker", "تماس با موفقیت قطع شد (روش 1)")
-            } catch (e: Exception) {
-                Log.e("CallBlocker", "خطا در روش 1، امتحان روش 2", e)
-                
-                // روش 2: استفاده از TelecomManager (برای اندروید جدید)
+            Log.d("CallBlocker", "Attempting to end call")
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
                 val telecomManager = context.getSystemService(Context.TELECOM_SERVICE) as android.telecom.TelecomManager
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                    telecomManager.endCall()
-                    Log.d("CallBlocker", "تماس با موفقیت قطع شد (روش 2)")
-                }
+                telecomManager.endCall()
+                Log.d("CallBlocker", "Call ended using TelecomManager")
+                return
+            }
+            try {
+                val telephonyManager = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+                val getITelephony = telephonyManager.javaClass.getDeclaredMethod("getITelephony")
+                getITelephony.isAccessible = true
+                val telephonyService = getITelephony.invoke(telephonyManager)
+                val endCall = telephonyService.javaClass.getDeclaredMethod("endCall")
+                endCall.invoke(telephonyService)
+                Log.d("CallBlocker", "Call ended using ITelephony")
+            } catch (e: Exception) {
+                Log.e("CallBlocker", "Error ending call with ITelephony", e)
             }
         } catch (e: Exception) {
-            Log.e("CallBlocker", "خطا در قطع تماس", e)
+            Log.e("CallBlocker", "General error ending call", e)
         }
     }
 }

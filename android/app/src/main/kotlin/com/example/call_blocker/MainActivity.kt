@@ -5,42 +5,32 @@ import android.content.SharedPreferences
 import android.content.Context
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import android.util.Log
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "callblocker.channel"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        Log.d("CallBlocker", "Setting up method channel")
         
-        // استفاده از SharedPreferences اختصاصی برای برنامه
         val sharedPref = applicationContext.getSharedPreferences("blocker_prefs", Context.MODE_PRIVATE)
         
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
-                "getBlockedPrefixes" -> {
-                    val blocked = sharedPref.getStringSet("blocked_prefixes", setOf()) ?: setOf()
-                    result.success(blocked.toList())
+                "isBlockingEnabled" -> {
+                    val isEnabled = sharedPref.getBoolean("blocking_enabled", false)
+                    Log.d("CallBlocker", "isBlockingEnabled called: $isEnabled")
+                    result.success(isEnabled)
                 }
-                "addBlockedPrefix" -> {
-                    val prefix = call.argument<String>("prefix")
-                    if (prefix != null) {
-                        val blocked = sharedPref.getStringSet("blocked_prefixes", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
-                        blocked.add(prefix)
-                        sharedPref.edit().putStringSet("blocked_prefixes", blocked).apply()
+                "setBlockingEnabled" -> {
+                    val enabled = call.argument<Boolean>("enabled")
+                    if (enabled != null) {
+                        Log.d("CallBlocker", "setBlockingEnabled called: $enabled")
+                        sharedPref.edit().putBoolean("blocking_enabled", enabled).apply()
                         result.success(null)
                     } else {
-                        result.error("INVALID_ARGUMENT", "Prefix is null", null)
-                    }
-                }
-                "removeBlockedPrefix" -> {
-                    val prefix = call.argument<String>("prefix")
-                    if (prefix != null) {
-                        val blocked = sharedPref.getStringSet("blocked_prefixes", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
-                        blocked.remove(prefix)
-                        sharedPref.edit().putStringSet("blocked_prefixes", blocked).apply()
-                        result.success(null)
-                    } else {
-                        result.error("INVALID_ARGUMENT", "Prefix is null", null)
+                        result.error("INVALID_ARGUMENT", "Enabled state is null", null)
                     }
                 }
                 else -> result.notImplemented()
