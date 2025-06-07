@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'package:call_blocker/models/navigation/navigation_model.dart';
-import 'package:call_blocker/screens/home_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -13,51 +11,124 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> {
+class _SplashScreenState extends State<SplashScreen>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _fadeAnimation;
+  late Animation<double> _scaleAnimation;
+  late Animation<Offset> _slideAnimation;
+
   @override
   void initState() {
     super.initState();
-    Timer(const Duration(seconds: 3), () async {
-      final granted = await checkPermissions();
+    _controller = AnimationController(
+      duration: const Duration(seconds: 2),
+      vsync: this,
+    );
+
+    _fadeAnimation = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeInOut,
+    );
+
+    _scaleAnimation = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutBack,
+    );
+
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.5),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutCubic,
+    ));
+
+    _controller.forward();
+
+    // Check permissions and navigate accordingly
+    Future.delayed(const Duration(seconds: 3), () async {
       if (!mounted) return;
-      if (granted) {
-        Navigator.pushReplacement(context, fadeTransition(const HomeScreen()));
+
+      var phoneStatus = await Permission.phone.status;
+      var contactsStatus = await Permission.contacts.status;
+
+      if (phoneStatus.isGranted && contactsStatus.isGranted) {
+        Navigator.pushReplacementNamed(context, '/home');
       } else {
         Navigator.pushReplacement(
           context,
-          fadeTransition(const PermissionsScreen()),
+          MaterialPageRoute(builder: (context) => const PermissionsScreen()),
         );
       }
     });
   }
 
-  Future<bool> checkPermissions() async {
-    final permissions = [Permission.phone, Permission.contacts];
-
-    final statuses = await Future.wait(permissions.map((p) => p.status));
-    return statuses.every((status) => status.isGranted);
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final double width = MediaQuery.of(context).size.width;
     final double height = MediaQuery.of(context).size.height;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
-      body: SafeArea(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: Center(
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            SizedBox(width: width),
-            const Spacer(),
-            Text(
-              'Call Blocker',
-              style: TextStyle(
-                fontSize: height * 0.047,
-                fontWeight: FontWeight.w800,
+            FadeTransition(
+              opacity: _fadeAnimation,
+              child: ScaleTransition(
+                scale: _scaleAnimation,
+                child: Image.asset(
+                  'assets/imgs/enabled-vector.png',
+                  width: width * 0.7,
+                  height: height * 0.35,
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Icon(
+                      Icons.phone_android,
+                      size: width * 0.4,
+                      color: isDark
+                          ? const Color(0xFF4CAF50)
+                          : Theme.of(context).primaryColor,
+                    );
+                  },
+                ),
               ),
             ),
-            const Text('BETA 0.0.1'),
-            const Spacer(),
+            SizedBox(height: height * 0.04),
+            SlideTransition(
+              position: _slideAnimation,
+              child: FadeTransition(
+                opacity: _fadeAnimation,
+                child: Text(
+                  'Call Blocker',
+                  style: TextStyle(
+                    fontSize: height * 0.04,
+                    fontWeight: FontWeight.bold,
+                    color: isDark
+                        ? const Color(0xFF4CAF50)
+                        : Theme.of(context).primaryColor,
+                    shadows: [
+                      Shadow(
+                        color: isDark
+                            ? Colors.black.withOpacity(0.3)
+                            : Colors.black.withOpacity(0.1),
+                        offset: const Offset(0, 2),
+                        blurRadius: 4,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
       ),

@@ -3,55 +3,125 @@ package com.example.call_blocker
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Bundle
 import android.telephony.TelephonyManager
 import android.util.Log
+import java.util.concurrent.ConcurrentHashMap
+import android.telecom.CallScreeningService
 
 class CallReceiver : BroadcastReceiver() {
+    companion object {
+        private const val TAG = "CallReceiver"
+        private const val ACTION_UPDATE_SETTINGS = "com.example.call_blocker.UPDATE_SETTINGS"
+        private val settings = ConcurrentHashMap<String, Any>()
+    }
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != TelephonyManager.ACTION_PHONE_STATE_CHANGED) return
-        
-        val state = intent.getStringExtra(TelephonyManager.EXTRA_STATE)
-        if (state == TelephonyManager.EXTRA_STATE_RINGING) {
-            val number = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER) ?: ""
-            Log.d("CallBlocker", "Incoming call from: $number")
-            
-            if (isBlockingEnabled(context)) {
-                Log.d("CallBlocker", "Blocking is enabled, checking number")
-                endCall(context)
-            } else {
-                Log.d("CallBlocker", "Blocking is disabled, allowing call")
-            }
-        }
-    }
-
-    private fun isBlockingEnabled(context: Context): Boolean {
-        val prefs = context.getSharedPreferences("blocker_prefs", Context.MODE_PRIVATE)
-        return prefs.getBoolean("blocking_enabled", false)
-    }
-
-    private fun endCall(context: Context) {
         try {
-            Log.d("CallBlocker", "Attempting to end call")
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                val telecomManager = context.getSystemService(Context.TELECOM_SERVICE) as android.telecom.TelecomManager
-                telecomManager.endCall()
-                Log.d("CallBlocker", "Call ended using TelecomManager")
+            if (intent.action != TelephonyManager.ACTION_PHONE_STATE_CHANGED) {
                 return
             }
-            try {
-                val telephonyManager = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-                val getITelephony = telephonyManager.javaClass.getDeclaredMethod("getITelephony")
-                getITelephony.isAccessible = true
-                val telephonyService = getITelephony.invoke(telephonyManager)
-                val endCall = telephonyService.javaClass.getDeclaredMethod("endCall")
-                endCall.invoke(telephonyService)
-                Log.d("CallBlocker", "Call ended using ITelephony")
-            } catch (e: Exception) {
-                Log.e("CallBlocker", "Error ending call with ITelephony", e)
+
+            val state = intent.getStringExtra(TelephonyManager.EXTRA_STATE)
+            if (state != TelephonyManager.EXTRA_STATE_RINGING) {
+                return
+            }
+
+            val phoneNumber = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
+            Log.d(TAG, "Incoming call from: $phoneNumber")
+
+            if (shouldBlockCall(phoneNumber)) {
+                Log.i(TAG, "Blocking call from: $phoneNumber")
+                blockCall(context, phoneNumber)
+            } else {
+                Log.d(TAG, "Allowing call from: $phoneNumber")
             }
         } catch (e: Exception) {
-            Log.e("CallBlocker", "General error ending call", e)
+            Log.e(TAG, "Error processing call: ${e.message}", e)
         }
+    }
+
+    private fun shouldBlockCall(phoneNumber: String?): Boolean {
+        try {
+            if (!isEnabled()) {
+                return false
+            }
+
+            if (phoneNumber == null) {
+                return isBlockPrivateEnabled()
+            }
+
+            if (isBlockAllEnabled()) {
+                return true
+            }
+
+            if (isBlockUnknownEnabled() && !isNumberInContacts(phoneNumber)) {
+                return true
+            }
+
+            val blockedNumbers = getBlockedNumbers()
+            val blockedPrefixes = getBlockedPrefixes()
+
+            return blockedNumbers.contains(phoneNumber) ||
+                   blockedPrefixes.any { prefix -> phoneNumber.startsWith(prefix) }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking if call should be blocked: ${e.message}", e)
+            return false
+        }
+    }
+
+    private fun blockCall(context: Context, phoneNumber: String?) {
+        try {
+            val intent = Intent(context, CallScreeningService::class.java).apply {
+                action = CallScreeningService.ACTION_SCREEN_CALL
+                putExtra(CallScreeningService.EXTRA_PHONE_NUMBER, phoneNumber)
+            }
+            context.startService(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error blocking call: ${e.message}", e)
+        }
+    }
+
+    fun updateSettings(
+        enabled: Boolean,
+        blockAll: Boolean,
+        blockUnknown: Boolean,
+        blockPrivate: Boolean,
+        blockedNumbers: Set<String>,
+        blockedPrefixes: Set<String>
+    ) {
+        try {
+            settings["enabled"] = enabled
+            settings["blockAll"] = blockAll
+            settings["blockUnknown"] = blockUnknown
+            settings["blockPrivate"] = blockPrivate
+            settings["blockedNumbers"] = blockedNumbers
+            settings["blockedPrefixes"] = blockedPrefixes
+
+            Log.d(TAG, "Settings updated successfully")
+            Log.i(TAG, "Settings updated: enabled=$enabled, blockAll=$blockAll, " +
+                      "blockUnknown=$blockUnknown, blockPrivate=$blockPrivate, " +
+                      "blockedNumbers=${blockedNumbers.size}, blockedPrefixes=${blockedPrefixes.size}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating settings: ${e.message}", e)
+        }
+    }
+
+    private fun isEnabled(): Boolean = settings["enabled"] as? Boolean ?: false
+    private fun isBlockAllEnabled(): Boolean = settings["blockAll"] as? Boolean ?: false
+    private fun isBlockUnknownEnabled(): Boolean = settings["blockUnknown"] as? Boolean ?: false
+    private fun isBlockPrivateEnabled(): Boolean = settings["blockPrivate"] as? Boolean ?: false
+
+    @Suppress("UNCHECKED_CAST")
+    private fun getBlockedNumbers(): Set<String> = 
+        (settings["blockedNumbers"] as? Set<String>) ?: emptySet()
+
+    @Suppress("UNCHECKED_CAST")
+    private fun getBlockedPrefixes(): Set<String> = 
+        (settings["blockedPrefixes"] as? Set<String>) ?: emptySet()
+
+    private fun isNumberInContacts(phoneNumber: String): Boolean {
+        // TODO: Implement contact checking logic
+        return false
     }
 }

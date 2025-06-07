@@ -17,6 +17,7 @@ class _PermissionsScreenState extends State<PermissionsScreen> {
   bool isRequesting = false;
   int countdownSeconds = 5;
   Timer? countdownTimer;
+  String? errorMessage;
 
   @override
   void initState() {
@@ -31,18 +32,30 @@ class _PermissionsScreenState extends State<PermissionsScreen> {
   }
 
   Future<void> checkPermissionsOnStart() async {
-    var phoneStatus = await Permission.phone.status;
-    var contactsStatus = await Permission.contacts.status;
-    if (phoneStatus.isGranted && contactsStatus.isGranted) {
+    try {
+      var phoneStatus = await Permission.phone.status;
+      var contactsStatus = await Permission.contacts.status;
+
+      if (!mounted) return;
+
+      setState(() {
+        permissionsGranted = phoneStatus.isGranted && contactsStatus.isGranted;
+        errorMessage = null;
+      });
+
+      if (permissionsGranted) {
+        startCountdown();
+      }
+    } catch (e) {
       if (!mounted) return;
       setState(() {
-        permissionsGranted = true;
+        errorMessage = 'Error checking permissions. Please try again.';
       });
-      startCountdown();
     }
   }
 
   void startCountdown() {
+    countdownTimer?.cancel();
     countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (countdownSeconds > 1) {
         setState(() {
@@ -57,28 +70,40 @@ class _PermissionsScreenState extends State<PermissionsScreen> {
   }
 
   Future<void> requestPermissions() async {
+    if (isRequesting) return;
+
     setState(() {
       isRequesting = true;
+      errorMessage = null;
     });
 
-    Map<Permission, PermissionStatus> statuses =
-        await [Permission.phone, Permission.contacts].request();
+    try {
+      Map<Permission, PermissionStatus> statuses =
+          await [Permission.phone, Permission.contacts].request();
 
-    bool allGranted =
-        statuses[Permission.phone]?.isGranted == true &&
-        statuses[Permission.contacts]?.isGranted == true;
+      bool allGranted = statuses[Permission.phone]?.isGranted == true &&
+          statuses[Permission.contacts]?.isGranted == true;
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    setState(() {
-      isRequesting = false;
-    });
-
-    if (allGranted) {
       setState(() {
-        permissionsGranted = true;
+        isRequesting = false;
+        permissionsGranted = allGranted;
       });
-      startCountdown();
+
+      if (allGranted) {
+        startCountdown();
+      } else {
+        setState(() {
+          errorMessage = 'Please grant all permissions to use the app';
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        isRequesting = false;
+        errorMessage = 'Error requesting permissions. Please try again.';
+      });
     }
   }
 
@@ -96,21 +121,20 @@ class _PermissionsScreenState extends State<PermissionsScreen> {
             const Spacer(flex: 2),
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 500),
-              child:
-                  permissionsGranted
-                      ? Icon(
-                        CupertinoIcons.checkmark_shield,
-                        key: const ValueKey('granted_icon'),
-                        size: width * 0.5,
-                        color: Colors.green,
-                      )
-                      : Icon(
-                        CupertinoIcons.xmark_shield,
-                        key: const ValueKey('denied_icon'),
-                        size: width * 0.5,
-                        color:
-                            isRequesting ? Colors.amber : Colors.redAccent[700],
-                      ),
+              child: permissionsGranted
+                  ? Icon(
+                      CupertinoIcons.checkmark_shield,
+                      key: const ValueKey('granted_icon'),
+                      size: width * 0.5,
+                      color: Colors.green,
+                    )
+                  : Icon(
+                      CupertinoIcons.xmark_shield,
+                      key: const ValueKey('denied_icon'),
+                      size: width * 0.5,
+                      color:
+                          isRequesting ? Colors.amber : Colors.redAccent[700],
+                    ),
             ),
             SizedBox(height: height * 0.05),
             AnimatedOpacity(
@@ -121,7 +145,7 @@ class _PermissionsScreenState extends State<PermissionsScreen> {
                   Text(
                     permissionsGranted
                         ? 'Permissions Granted!'
-                        : 'Permissions Denied!',
+                        : 'Permissions Required',
                     style: TextStyle(
                       fontSize: height * 0.029,
                       fontWeight: FontWeight.w700,
@@ -131,57 +155,63 @@ class _PermissionsScreenState extends State<PermissionsScreen> {
                   Text(
                     permissionsGranted
                         ? 'Redirecting to main screen in $countdownSeconds seconds...'
-                        : 'Please grant the required permissions to the app',
+                        : 'This app needs phone and contacts permissions to block unwanted calls',
                     style: TextStyle(
                       fontSize: height * 0.016,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w500,
                       color: Colors.grey[650],
                     ),
                     textAlign: TextAlign.center,
                   ),
+                  if (errorMessage != null) ...[
+                    SizedBox(height: height * 0.02),
+                    Text(
+                      errorMessage!,
+                      style: TextStyle(
+                        fontSize: height * 0.014,
+                        color: Colors.red[700],
+                        fontWeight: FontWeight.w500,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
                 ],
               ),
             ),
-
             SizedBox(height: height * 0.09),
             AnimatedOpacity(
               opacity: permissionsGranted ? 0.0 : 1.0,
               duration: const Duration(milliseconds: 300),
               child: ElevatedButton(
-                onPressed:
-                    isRequesting || permissionsGranted
-                        ? null
-                        : requestPermissions,
+                onPressed: isRequesting ? null : requestPermissions,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor:
-                      permissionsGranted
-                          ? Colors.green[300]
-                          : Colors.lightBlue[100],
+                  backgroundColor: permissionsGranted
+                      ? Colors.green[300]
+                      : Colors.lightBlue[100],
                   fixedSize: Size(width * 0.55, height * 0.06),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
-                child:
-                    isRequesting
-                        ? SizedBox(
-                          height: height * 0.03,
-                          width: height * 0.03,
-                          child: const CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.black,
-                          ),
-                        )
-                        : Text(
-                          permissionsGranted
-                              ? 'Permissions Granted'
-                              : 'Request Permissions',
-                          style: TextStyle(
-                            fontSize: height * 0.02,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.black,
-                          ),
+                child: isRequesting
+                    ? SizedBox(
+                        height: height * 0.03,
+                        width: height * 0.03,
+                        child: const CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.black,
                         ),
+                      )
+                    : Text(
+                        permissionsGranted
+                            ? 'Permissions Granted'
+                            : 'Grant Permissions',
+                        style: TextStyle(
+                          fontSize: height * 0.02,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.black,
+                        ),
+                      ),
               ),
             ),
             const Spacer(),
